@@ -1,0 +1,1539 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neon Sequence: The Cyber Grid Puzzle</title>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" rel="stylesheet">
+    <!-- Tone.js for generating sound effects -->
+    <script src="https://unpkg.com/tone@14.7.58/build/Tone.js"></script> 
+    
+    <!-- Firebase Imports -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, onSnapshot, collection, query, limit, setLogLevel, serverTimestamp, orderBy, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Global variables provided by the environment
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        if (firebaseConfig) {
+            window.firebaseApp = initializeApp(firebaseConfig);
+            window.db = getFirestore(window.firebaseApp);
+            window.auth = getAuth(window.firebaseApp);
+            window.appId = appId;
+            
+            // Enable Firestore debug logging
+            setLogLevel('Debug');
+            
+            // Attach Firestore functions globally for use in the main script
+            window.fs = { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, getFirestore, doc, setDoc, onSnapshot, collection, query, limit, serverTimestamp, orderBy, getDoc };
+
+            // Start authentication process
+            window.initializeFirebaseAndAuth();
+        } else {
+            console.error("Firebase config is missing. Leaderboard functionality disabled.");
+        }
+    </script>
+    
+    <style>
+        /* Base styles for a high-contrast, neon-themed interface */
+        :root {
+            --color-bg: #111827; /* Dark Slate */
+            --color-neon-blue: #3b82f6; /* Bright Blue */
+            --color-neon-green: #10b981; /* Emerald Green */
+            --color-neon-red: #ef4444; /* Vivid Red - Used for Player/Path */
+            --color-barrier: #f97316; /* Orange 500 - Barrier */
+            --color-text: #f3f4f6; /* Light Gray */
+            --color-obstacle: #374151; /* Dark Gray */
+            --color-path: rgba(239, 68, 68, 0.7); /* Semi-transparent red for path */
+            --color-star-filled: #f59e0b; /* Amber */
+            --color-star-empty: #4b5563; /* Medium Gray */
+            --color-tutorial-highlight: #facc15; /* Yellow for Tutorial */
+            --color-portal-a: #3b82f6;
+            --color-portal-b: #10b981;
+            --color-oneway: #7f1d1d; /* Darker red */
+        }
+
+        body {
+            font-family: 'Orbitron', sans-serif;
+            background-color: var(--color-bg);
+            color: var(--color-text);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+            overflow-x: hidden;
+        }
+
+        .game-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 100%;
+            max-width: 600px;
+            padding: 20px;
+            background: #1f2937; /* Slightly lighter dark background */
+            border-radius: 20px;
+            box-shadow: 0 0 40px rgba(59, 130, 246, 0.3);
+            border: 2px solid var(--color-neon-blue);
+        }
+
+        h1 {
+            color: var(--color-neon-green);
+            text-shadow: 0 0 10px rgba(16, 185, 129, 0.7);
+            margin-bottom: 10px;
+            font-size: 2.2rem;
+            text-align: center;
+        }
+
+        #gameCanvas {
+            border: 4px solid var(--color-neon-blue);
+            box-shadow: 0 0 20px rgba(59, 130, 246, 0.5);
+            margin: 20px 0;
+            background-color: #0d1117;
+            touch-action: none;
+        }
+
+        .ui-panel {
+            display: flex;
+            justify-content: space-between;
+            width: 100%;
+            max-width: 500px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        .status-info {
+            font-size: 1.1rem;
+            color: var(--color-neon-blue);
+            margin-top: 10px;
+            text-align: center;
+            width: 33%; 
+            min-width: 120px;
+        }
+        
+        #movesDisplay {
+            color: var(--color-neon-red);
+            font-weight: bold;
+        }
+
+        .user-id-display {
+            width: 100%;
+            text-align: center;
+            margin-top: 10px;
+            font-size: 0.8rem;
+            color: #9ca3af;
+            word-break: break-all;
+            padding: 5px 0;
+            border-top: 1px solid #374151;
+        }
+
+        .controls {
+            display: grid;
+            grid-template-areas: ". up ." "left center right" ". down .";
+            gap: 10px;
+            margin-top: 20px;
+            max-width: 200px;
+            width: 100%;
+        }
+
+        .controls button {
+            padding: 15px;
+            font-size: 1rem;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            background-color: var(--color-neon-blue);
+            color: var(--color-text);
+            text-shadow: 0 0 5px #000;
+            box-shadow: 0 0 10px rgba(59, 130, 246, 0.7);
+            transition: all 0.1s ease;
+            outline: none;
+        }
+        
+        /* Tutorial Highlight for controls */
+        .controls button.highlight {
+            background-color: var(--color-tutorial-highlight);
+            color: var(--color-bg);
+            box-shadow: 0 0 20px rgba(250, 202, 21, 1);
+        }
+
+
+        .controls button:hover:not(:disabled), 
+        .controls button:focus:not(:disabled) {
+            background-color: #2563eb;
+            box-shadow: 0 0 15px rgba(59, 130, 246, 1);
+            transform: scale(1.05);
+        }
+        
+        .controls button:disabled {
+            background-color: #1c3e72;
+            cursor: not-allowed;
+            opacity: 0.6;
+            box-shadow: none;
+        }
+        
+        .controls button.highlight:disabled {
+            opacity: 1; /* Keep highlight bright even if functionally disabled */
+        }
+
+        .controls button:active {
+            transform: scale(0.95);
+        }
+
+        #moveUp { grid-area: up; }
+        #moveLeft { grid-area: left; }
+        #moveRight { grid-area: right; }
+        #moveDown { grid-area: down; }
+        #moveCenter { grid-area: center; visibility: hidden; }
+
+        .game-buttons {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+            justify-content: center;
+            flex-wrap: wrap;
+            width: 100%;
+        }
+
+        .game-buttons button {
+            padding: 12px 25px;
+            font-size: 1rem;
+            font-weight: bold;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background-color 0.2s, box-shadow 0.2s;
+            text-transform: uppercase;
+            flex-grow: 1;
+            min-width: 140px;
+        }
+
+        #startGameBtn {
+            background-color: var(--color-neon-green);
+            color: var(--color-bg);
+            box-shadow: 0 0 15px rgba(16, 185, 129, 0.8);
+        }
+
+        #resetLevelBtn {
+            background-color: var(--color-neon-red);
+            color: var(--color-text);
+            box-shadow: 0 0 15px rgba(239, 68, 68, 0.8);
+        }
+
+        #undoMoveBtn {
+            background-color: #7c3aed; /* Violet for Undo */
+            color: var(--color-text);
+            box-shadow: 0 0 15px rgba(124, 58, 237, 0.8);
+        }
+        
+        #nextLevelBtn {
+            background-color: var(--color-neon-blue);
+            color: var(--color-text);
+            box-shadow: 0 0 15px rgba(59, 130, 246, 0.8);
+            display: none;
+        }
+
+        /* Modal/Message Box Styling */
+        .message-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.8);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+        }
+
+        .modal-content {
+            background: #1f2937;
+            padding: 40px;
+            border-radius: 15px;
+            border: 3px solid var(--color-neon-green);
+            box-shadow: 0 0 30px rgba(16, 185, 129, 0.5);
+            text-align: center;
+            max-width: 90%;
+            transform: scale(0.9);
+            animation: popIn 0.3s forwards;
+        }
+
+        @keyframes popIn {
+            to { transform: scale(1); }
+        }
+
+        .modal-content h2 {
+            color: var(--color-neon-green);
+            margin-top: 0;
+            font-size: 2rem;
+        }
+        
+        #starRating {
+            font-size: 3rem;
+            margin: 15px 0;
+            color: var(--color-star-empty);
+            text-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+        }
+        
+        #starRating .filled {
+            color: var(--color-star-filled);
+            text-shadow: 0 0 15px var(--color-star-filled);
+        }
+
+        #optimalRunLabel {
+            font-size: 1.2rem;
+            color: var(--color-neon-red);
+            text-shadow: 0 0 5px var(--color-neon-red);
+            margin-bottom: 15px;
+            font-weight: bold;
+            display: none;
+        }
+
+        /* Leaderboard Styling */
+        .leaderboard-container {
+            width: 100%;
+            max-width: 600px;
+            margin-top: 30px;
+            padding: 20px;
+            background: #1f2937;
+            border-radius: 15px;
+            border: 2px solid var(--color-neon-red);
+            box-shadow: 0 0 25px rgba(239, 68, 68, 0.4);
+        }
+
+        .leaderboard-container h2 {
+            color: var(--color-neon-red);
+            text-shadow: 0 0 8px rgba(239, 68, 68, 0.8);
+            text-align: center;
+            margin-bottom: 20px;
+            font-size: 1.5rem;
+        }
+
+        #leaderboardList {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        #leaderboardList li {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px dashed #374151;
+            font-size: 1rem;
+        }
+
+        #leaderboardList li:last-child {
+            border-bottom: none;
+        }
+
+        .rank {
+            color: var(--color-neon-green);
+            font-weight: bold;
+            width: 10%;
+            text-align: left;
+        }
+        .score-user {
+            width: 50%;
+            text-align: left;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .score-details {
+            width: 40%;
+            text-align: right;
+            color: var(--color-neon-blue);
+        }
+        .score-details span {
+            color: var(--color-neon-green);
+            margin-left: 10px;
+        }
+
+        /* Responsive Adjustments */
+        @media (max-width: 500px) {
+            h1 {
+                font-size: 1.8rem;
+            }
+            .game-container {
+                padding: 10px;
+            }
+            .ui-panel {
+                flex-direction: row;
+                gap: 5px;
+            }
+            .status-info {
+                font-size: 0.9rem;
+            }
+            .controls {
+                max-width: 150px;
+            }
+            .controls button {
+                padding: 10px;
+            }
+            .rank { width: 15%; }
+            .score-user { width: 45%; }
+            .score-details { width: 40%; font-size: 0.9rem; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="game-container">
+        <h1>Neon Sequence</h1>
+        <div class="user-id-display">Your ID: <span id="userIdDisplay">Loading...</span> (Share this ID to compare scores!)</div>
+        <div class="ui-panel">
+            <div class="status-info" id="levelDisplay">Level: 1/30</div>
+            <div class="status-info" id="movesDisplay">Moves: 0</div>
+            <div class="status-info" id="targetDisplay">Next Target: 1</div>
+        </div>
+
+        <canvas id="gameCanvas" width="500" height="500"></canvas>
+
+        <div class="game-buttons">
+            <button id="startGameBtn">Start Game</button>
+            <button id="undoMoveBtn" disabled>Undo Move</button>
+            <button id="resetLevelBtn" disabled>Reset Level</button>
+            <button id="nextLevelBtn" style="display: none;">Next Level &#8594;</button>
+        </div>
+
+        <div class="controls">
+            <button id="moveUp" data-dir="up">Up</button>
+            <button id="moveLeft" data-dir="left">Left</button>
+            <div id="moveCenter"></div>
+            <button id="moveRight" data-dir="right">Right</button>
+            <button id="moveDown" data-dir="down">Down</button>
+        </div>
+    </div>
+    
+    <!-- Leaderboard Container -->
+    <div class="leaderboard-container">
+        <h2>Global Leaderboard</h2>
+        <ul id="leaderboardList">
+            <!-- Leaderboard items will be injected here -->
+            <li style="text-align: center; color: #9ca3af;">Loading scores...</li>
+        </ul>
+    </div>
+
+    <!-- Message Modal -->
+    <div class="message-modal" id="messageModal">
+        <div class="modal-content">
+            <h2 id="modalTitle">Welcome</h2>
+            <div id="starRating" style="display:none;"></div>
+            <div id="optimalRunLabel" style="display:none;">Optimal Run!</div>
+            <p id="modalMessage">Use the arrow keys or directional buttons to move the glowing orb and collect the targets in numerical order.</p>
+            <button class="modal-button" id="modalCloseBtn">Got It!</button>
+        </div>
+    </div>
+
+    <script>
+        // Check for imported Firebase functions
+        if (typeof window.fs === 'undefined') {
+            console.warn("Firebase modules not loaded. Leaderboard features will be disabled.");
+            document.getElementById('leaderboardList').innerHTML = '<li style="text-align: center; color: #ef4444;">Leaderboard disabled: Firebase not initialized.</li>';
+        }
+
+        // --- GLOBAL FIREBASE/AUTH STATE ---
+        let db = window.db; 
+        let auth = window.auth;
+        let appId = window.appId;
+        let userId = 'anon_id'; // Default, updated after auth
+        let isAuthReady = false;
+
+        // Function to initialize Firebase and authenticate
+        window.initializeFirebaseAndAuth = async function() {
+            if (!window.firebaseApp) return;
+
+            const auth = window.auth;
+            const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+            if (initialAuthToken) {
+                try {
+                    await fs.signInWithCustomToken(auth, initialAuthToken);
+                } catch (error) {
+                    console.error("Custom token sign-in failed. Falling back to anonymous.", error);
+                    await fs.signInAnonymously(auth);
+                }
+            } else {
+                await fs.signInAnonymously(auth);
+            }
+
+            fs.onAuthStateChanged(auth, (user) => {
+                if (user) {
+                    userId = user.uid;
+                } else {
+                    // Fallback for unauthenticated or anonymous, using a persistent key for local recognition
+                    userId = localStorage.getItem('localUserId') || crypto.randomUUID();
+                    localStorage.setItem('localUserId', userId);
+                }
+                document.getElementById('userIdDisplay').textContent = userId;
+                isAuthReady = true;
+                
+                // Once authenticated, start the database listeners
+                setupLeaderboardListener();
+                loadFirestoreProgress();
+            });
+        };
+        
+        // --- FIREBASE SCORE & PROGRESS LOGIC ---
+
+        function getLeaderboardCollectionRef() {
+            if (!db || !appId || !isAuthReady) return null;
+            // Public collection path: /artifacts/{appId}/public/data/leaderboard
+            return fs.collection(db, 'artifacts', appId, 'public', 'data', 'leaderboard');
+        }
+        
+        function getProgressDocRef() {
+            if (!db || !appId || !isAuthReady) return null;
+            // Private progress path: /artifacts/{appId}/users/{userId}/progress/gameState
+            return fs.doc(db, 'artifacts', appId, 'users', userId, 'progress', 'gameState');
+        }
+
+        async function saveProgress() {
+            const docRef = getProgressDocRef();
+            if (!docRef) {
+                console.warn("Cannot save progress: Firebase not ready or user not authenticated.");
+                return;
+            }
+            try {
+                await fs.setDoc(docRef, {
+                    levelIndex: gameState.currentLevelIndex, // Save 0-indexed level
+                    hasCompletedTutorial: gameState.hasCompletedTutorial,
+                    timestamp: fs.serverTimestamp(),
+                }, { merge: true });
+                // console.log("Progress saved successfully:", gameState.currentLevelIndex);
+            } catch (e) {
+                console.error("Error saving progress:", e);
+            }
+        }
+
+        async function loadFirestoreProgress() {
+            const docRef = getProgressDocRef();
+            if (!docRef) {
+                // If not ready, we will load default level 0 (Level 1)
+                loadLevel(gameState.currentLevelIndex, false);
+                return;
+            }
+
+            try {
+                const docSnap = await fs.getDoc(docRef);
+                if (docSnap.exists()) {
+                    const data = docSnap.data();
+                    const savedIndex = data.levelIndex || 0;
+                    gameState.hasCompletedTutorial = data.hasCompletedTutorial === true;
+                    
+                    if (savedIndex > gameState.currentLevelIndex && savedIndex < allLevels.length) {
+                        gameState.currentLevelIndex = savedIndex;
+                    }
+                }
+            } catch (e) {
+                console.error("Error loading progress, starting from Level 1:", e);
+            }
+
+            // Now that we have the progress, start the game setup
+            loadLevel(gameState.currentLevelIndex, false);
+            
+            if (gameState.currentLevelIndex === 0 && !gameState.hasCompletedTutorial) {
+                 startTutorial();
+            } else {
+                startGameBtn.textContent = `Continue Game (Level ${gameState.currentLevelIndex + 1})`;
+                showMessage('Welcome Back', `Ready for Level ${gameState.currentLevelIndex + 1}?`);
+            }
+        }
+
+        async function submitScoreToLeaderboard(levelIndex, moves) {
+            const leaderboardRef = getLeaderboardCollectionRef();
+            if (!leaderboardRef) {
+                console.warn("Cannot submit score: Firebase not ready or user not authenticated.");
+                return;
+            }
+
+            // Create a unique document ID based on the user ID
+            const scoreDocRef = fs.doc(leaderboardRef, userId);
+
+            try {
+                const docSnap = await fs.getDoc(scoreDocRef);
+                const existingScore = docSnap.exists() ? docSnap.data() : null;
+
+                let isNewBest = false;
+                
+                if (existingScore) {
+                    if (levelIndex > existingScore.levelIndex) {
+                        isNewBest = true;
+                    } 
+                    else if (levelIndex === existingScore.levelIndex && moves < existingScore.moves) {
+                        isNewBest = true;
+                    }
+                } else {
+                    isNewBest = true;
+                }
+
+                if (isNewBest) {
+                    await fs.setDoc(scoreDocRef, {
+                        userId: userId,
+                        userName: `Player-${userId.substring(0, 4)}`,
+                        levelIndex: levelIndex,
+                        moves: moves,
+                        timestamp: fs.serverTimestamp(), 
+                    });
+                    console.log(`New high score submitted for Level ${levelIndex + 1} with ${moves} moves.`);
+                }
+            } catch (e) {
+                console.error("Error submitting score:", e);
+            }
+        }
+
+        function setupLeaderboardListener() {
+            const leaderboardRef = getLeaderboardCollectionRef();
+            if (!leaderboardRef) return;
+
+            const q = fs.query(
+                leaderboardRef,
+                fs.orderBy('levelIndex', 'desc'), 
+                fs.orderBy('moves', 'asc'), 
+                fs.limit(10)
+            );
+
+            fs.onSnapshot(q, (querySnapshot) => {
+                const scores = [];
+                querySnapshot.forEach((doc) => {
+                    scores.push(doc.data());
+                });
+                renderLeaderboard(scores);
+            }, (error) => {
+                console.error("Leaderboard snapshot error:", error);
+                document.getElementById('leaderboardList').innerHTML = `<li style="text-align: center; color: #ef4444;">Error loading scores.</li>`;
+            });
+        }
+
+        function renderLeaderboard(scores) {
+            const listEl = document.getElementById('leaderboardList');
+            if (scores.length === 0) {
+                listEl.innerHTML = '<li style="text-align: center; color: #9ca3af;">Be the first to get an Optimal Run!</li>';
+                return;
+            }
+
+            listEl.innerHTML = '';
+            scores.forEach((score, index) => {
+                const li = document.createElement('li');
+                if (score.userId === userId) {
+                    li.style.backgroundColor = '#2c3e50'; 
+                    li.style.border = '1px solid var(--color-neon-green)';
+                    li.style.borderRadius = '5px';
+                }
+                
+                const rank = index + 1;
+                const userName = score.userName || score.userId;
+
+                li.innerHTML = `
+                    <span class="rank">#${rank}</span>
+                    <span class="score-user">${userName}</span>
+                    <span class="score-details">Lvl: <span>${score.levelIndex + 1}</span> | Moves: <span>${score.moves}</span></span>
+                `;
+                listEl.appendChild(li);
+            });
+        }
+
+        // --- GAME LOGIC ---
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const levelDisplay = document.getElementById('levelDisplay');
+        const movesDisplay = document.getElementById('movesDisplay');
+        const targetDisplay = document.getElementById('targetDisplay');
+        const startGameBtn = document.getElementById('startGameBtn');
+        const resetLevelBtn = document.getElementById('resetLevelBtn');
+        const undoMoveBtn = document.getElementById('undoMoveBtn'); 
+        const nextLevelBtn = document.getElementById('nextLevelBtn');
+        const controlButtons = document.querySelectorAll('.controls button[data-dir]');
+
+        const messageModal = document.getElementById('messageModal');
+        const modalTitle = document.getElementById('modalTitle');
+        const starRatingEl = document.getElementById('starRating');
+        const optimalRunLabel = document.getElementById('optimalRunLabel');
+        const modalMessage = document.getElementById('modalMessage');
+        const modalCloseBtn = document.getElementById('modalCloseBtn');
+
+        let CELL_SIZE = 50;
+        let gameState = {
+            isRunning: false,
+            currentLevelIndex: 0,
+            player: { x: 0, y: 0 },
+            nextTarget: 1,
+            movesCount: 0, 
+            moveHistory: [], 
+            path: [], 
+            currentLevel: null,
+            isPulsing: false, 
+            tutorialStep: 0, 
+            hasCompletedTutorial: false, 
+        };
+        
+        const TUTORIAL_MOVES = [
+            { dx: 0, dy: 1, dir: 'down', message: "First, press the **Down** arrow (or 'S') to move towards the path." },
+            { dx: 0, dy: 1, dir: 'down', message: "Good. Now, press **Down** again to reach the path junction." },
+            { dx: 1, dy: 0, dir: 'right', message: "Excellent! Press **Right** (or 'D') to collect the first target, **Target 2**." }
+        ];
+
+        let synth = null;
+        let audioInitialized = false;
+        
+        // Note: Optimal moves array needs to be adjusted if levels are inserted/removed. 
+        // We will keep the first 5 and then guess for the new ones.
+        const optimalMoves = [6, 8, 11, 14, 15, 10, 12, 14, 15, 8, 12, 13, 20, 17, 10, 12, 22, 15, 25, 16, 20, 20, 20, 25, 15, 20, 16, 18, 25, 15, 25, 20, 30, 35];
+
+        function initializeAudio() {
+            if (typeof Tone !== 'undefined' && !audioInitialized) {
+                try {
+                    if (Tone.context.state !== 'running') {
+                        Tone.start();
+                    }
+                    synth = new Tone.PolySynth(Tone.Synth).toDestination();
+                    synth.set({
+                        oscillator: { type: "square" },
+                        envelope: { attack: 0.005, decay: 0.1, sustain: 0.1, release: 0.1 }
+                    });
+                    audioInitialized = true;
+                } catch (e) {
+                    console.error("Failed to initialize Tone.js:", e);
+                }
+            }
+        }
+        
+        function playMoveSound() { if (!synth) return; synth.triggerAttackRelease("C4", "16n"); }
+        function playCollectSound() { if (!synth) return; synth.triggerAttackRelease(["E5", "G5", "C6"], "8n", Tone.now(), 0.5); }
+        function playFailSound() { if (!synth) return; synth.triggerAttackRelease("C2", "4n", Tone.now(), 0.8); }
+        function playBarrierOpenSound() { if (!synth) return; synth.triggerAttackRelease("A4", "8n", Tone.now(), 0.8); }
+        function playPortalSound() { if (!synth) return; synth.triggerAttackRelease(["D6", "B5"], "16n"); }
+
+        function playWinSound(starCount) {
+            if (!synth) return;
+            if (starCount === 3) {
+                synth.set({ envelope: { attack: 0.01, release: 0.8 } });
+                synth.triggerAttackRelease(["C5", "E5", "G5", "C6"], "1.5n", Tone.now(), 0.7);
+            } else {
+                synth.set({ envelope: { release: 0.5 } });
+                synth.triggerAttackRelease(["C5", "E5", "G5"], "1m"); 
+            }
+            setTimeout(() => {
+                 synth.set({ envelope: { attack: 0.005, decay: 0.1, sustain: 0.1, release: 0.1 } });
+            }, 1000); 
+        }
+
+        /* * Tile Legend:
+         * 0: Empty
+         * 1: Start (Consumed at start)
+         * 2+: Target (Must be collected in numerical order)
+         * 9: Static Wall/Obstacle
+         * 10: Closed Barrier (Must be opened by a trigger)
+         * 11: Portal A
+         * 12: Portal B
+         * 13: One-Way Gate (Logic defined in `oneWayGates` array)
+        */
+
+        const allLevels = [
+            { grid: [[1, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 2, 3]], gridSize: 4, targetCount: 3 },
+            { grid: [[0, 0, 0, 0, 0], [0, 1, 0, 9, 0], [0, 0, 0, 0, 0], [0, 9, 0, 3, 0], [2, 0, 0, 0, 0]], gridSize: 5, targetCount: 3 },
+            { grid: [[0, 0, 0, 0, 0, 0], [1, 0, 0, 0, 9, 0], [0, 0, 9, 0, 0, 0], [0, 0, 0, 0, 0, 4], [0, 9, 0, 9, 0, 0], [2, 0, 0, 3, 0, 0]], gridSize: 6, targetCount: 4 },
+            { grid: [[0, 0, 0, 0, 0, 0, 0], [1, 9, 9, 0, 0, 9, 5], [0, 0, 0, 0, 9, 0, 0], [0, 9, 4, 9, 0, 0, 0], [0, 0, 0, 0, 0, 9, 0], [2, 9, 9, 9, 0, 0, 0], [0, 3, 0, 0, 0, 0, 0]], gridSize: 7, targetCount: 5 },
+            // Level 5 (Index 4): Fixed Barrier with Trigger
+            { 
+                grid: [[1, 0, 0, 0, 0, 0], [0, 9, 9, 10, 9, 0], [0, 9, 0, 0, 9, 0], [0, 9, 0, 3, 9, 0], [0, 2, 0, 0, 0, 0], [0, 0, 0, 0, 0, 4]], 
+                gridSize: 6, 
+                targetCount: 4,
+                triggers: [{ onCollectTarget: 2, action: { type: 'open_barrier', x: 3, y: 1 } }]
+            },
+            
+            // --- NEW FEATURE LEVELS START HERE ---
+
+            // Level 6 (Index 5): One-Way Gates
+            { 
+                grid: [
+                    [1, 0, 0, 0, 0, 0], 
+                    [0, 13, 13, 0, 0, 0], // One-Way Gates (13)
+                    [0, 0, 0, 0, 0, 0], 
+                    [0, 13, 13, 0, 0, 0], 
+                    [0, 0, 0, 0, 0, 0], 
+                    [2, 0, 3, 0, 0, 4]
+                ], 
+                gridSize: 6, 
+                targetCount: 4,
+                oneWayGates: [
+                    { x: 1, y: 1, allowed: ['down', 'right'] }, 
+                    { x: 2, y: 1, allowed: ['down', 'left'] },
+                    { x: 1, y: 3, allowed: ['up', 'right'] }, 
+                    { x: 2, y: 3, allowed: ['up', 'left'] }
+                ]
+            },
+            
+            // Level 7 (Index 6): Portals
+            { 
+                grid: [
+                    [1, 0, 0, 9, 0, 0], 
+                    [0, 9, 0, 9, 0, 0], 
+                    [0, 11, 0, 9, 0, 12], // 11: Portal A, 12: Portal B
+                    [0, 9, 0, 9, 0, 0], 
+                    [0, 9, 0, 9, 0, 3], 
+                    [2, 0, 0, 0, 0, 4]
+                ], 
+                gridSize: 6, 
+                targetCount: 4,
+                portals: [{ x: 1, y: 2, targetX: 5, y: 2 }] // Portal A (1,2) <-> Portal B (5,2)
+            },
+
+            // Level 8 (Index 7): Gates, Portals, and Triggers
+            { 
+                grid: [
+                    [1, 0, 0, 0, 0, 0, 0], 
+                    [0, 9, 13, 10, 13, 9, 0], 
+                    [0, 11, 0, 0, 0, 12, 0], // Portals
+                    [0, 9, 13, 0, 13, 9, 4], // One-Way Gates and Barrier
+                    [2, 0, 0, 0, 0, 0, 0], 
+                    [0, 9, 9, 9, 9, 9, 0],
+                    [3, 0, 0, 0, 0, 0, 0]
+                ], 
+                gridSize: 7, 
+                targetCount: 4,
+                portals: [{ x: 1, y: 2, targetX: 5, y: 2 }],
+                oneWayGates: [
+                    { x: 2, y: 1, allowed: ['up'] }, // Only enter from up
+                    { x: 4, y: 1, allowed: ['up'] },
+                    { x: 2, y: 3, allowed: ['down'] }, // Only enter from down
+                    { x: 4, y: 3, allowed: ['down'] }
+                ],
+                triggers: [{ onCollectTarget: 3, action: { type: 'open_barrier', x: 3, y: 1 } }] // Target 3 opens (3,1) barrier
+            },
+            
+            // Old Level 6 (Index 5) is now Level 9 (Index 8) - Re-mapping old levels
+            { grid: [[1, 0, 0, 0, 0, 0, 0, 0], [0, 9, 0, 9, 0, 9, 0, 6], [0, 0, 3, 0, 0, 0, 0, 0], [0, 9, 0, 9, 0, 9, 0, 0], [4, 0, 0, 0, 5, 0, 0, 0], [0, 9, 0, 9, 0, 9, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0], [2, 0, 0, 0, 0, 0, 0, 0]], gridSize: 8, targetCount: 6 },
+            { grid: [[1, 0, 0, 0, 0, 0, 0], [0, 0, 0, 9, 0, 0, 0], [0, 0, 0, 9, 0, 0, 0], [0, 3, 9, 9, 9, 4, 0], [0, 0, 0, 9, 0, 0, 0], [0, 0, 0, 9, 0, 0, 5], [2, 0, 0, 0, 0, 0, 0]], gridSize: 7, targetCount: 5 },
+            // ... (remaining old levels follow)
+            { grid: [[1, 0, 9, 0, 0, 0], [0, 0, 9, 0, 9, 0], [0, 0, 0, 0, 9, 0], [0, 9, 0, 9, 0, 0], [2, 9, 0, 9, 0, 4], [0, 3, 0, 0, 0, 0]], gridSize: 6, targetCount: 4 },
+            { grid: [[2, 0, 0, 0, 0], [0, 9, 9, 9, 0], [0, 9, 1, 9, 0], [0, 9, 9, 9, 0], [0, 0, 0, 0, 3]], gridSize: 5, targetCount: 3 },
+            { grid: [[1, 0, 0, 0, 0, 0, 0, 0], [0, 9, 9, 9, 9, 9, 9, 7], [0, 0, 2, 0, 0, 0, 9, 0], [0, 9, 9, 9, 9, 0, 9, 0], [0, 0, 0, 0, 5, 0, 9, 0], [0, 9, 9, 9, 9, 6, 9, 0], [0, 0, 4, 0, 0, 0, 9, 0], [3, 0, 0, 0, 0, 0, 0, 0]], gridSize: 8, targetCount: 7 },
+            { grid: [[1, 0, 0, 0, 0, 0], [0, 9, 9, 9, 9, 0], [0, 0, 0, 0, 0, 3], [4, 9, 9, 9, 9, 0], [0, 0, 0, 0, 0, 5], [0, 0, 0, 0, 9, 2]], gridSize: 6, targetCount: 5 },
+            { grid: [[1, 0, 0, 0, 0, 0, 0, 0], [0, 9, 9, 9, 9, 9, 9, 0], [0, 9, 2, 3, 4, 5, 9, 0], [0, 9, 9, 9, 9, 9, 9, 0], [0, 9, 0, 0, 0, 0, 0, 0], [0, 9, 0, 0, 0, 0, 0, 6], [0, 9, 0, 0, 0, 0, 0, 0], [0, 7, 0, 0, 0, 0, 0, 8]], gridSize: 8, targetCount: 8 },
+            { grid: [[1, 0, 0, 0, 0, 0, 0], [9, 9, 9, 9, 9, 9, 0], [0, 0, 3, 0, 0, 0, 0], [0, 9, 9, 9, 9, 9, 9], [0, 0, 0, 0, 0, 0, 4], [9, 9, 9, 9, 9, 9, 0], [2, 0, 0, 0, 0, 5, 0]], gridSize: 7, targetCount: 5 },
+            { grid: [[1, 0, 0, 0, 0, 0, 0, 2], [0, 9, 9, 9, 9, 9, 9, 0], [0, 9, 0, 0, 0, 0, 9, 0], [0, 9, 0, 9, 9, 0, 9, 0], [0, 9, 0, 9, 9, 0, 9, 0], [0, 9, 0, 0, 0, 0, 9, 0], [0, 9, 9, 9, 9, 9, 9, 0], [6, 0, 5, 0, 4, 0, 3, 0]], gridSize: 8, targetCount: 6 },
+            { grid: [[1, 0, 0, 0, 0, 0, 0], [0, 9, 9, 9, 9, 9, 0], [2, 0, 3, 0, 4, 0, 5], [0, 9, 9, 9, 9, 9, 0], [6, 0, 0, 0, 0, 0, 7], [0, 9, 9, 9, 9, 9, 0], [0, 0, 0, 0, 0, 0, 0]], gridSize: 7, targetCount: 7 },
+            { grid: [[0, 0, 0, 0, 0, 0, 0, 0], [0, 9, 9, 9, 9, 9, 9, 0], [1, 9, 0, 0, 0, 0, 9, 3], [0, 9, 0, 9, 9, 0, 9, 0], [0, 9, 0, 9, 9, 0, 9, 0], [0, 9, 0, 0, 0, 0, 9, 4], [0, 9, 9, 9, 9, 9, 9, 0], [2, 0, 0, 0, 0, 0, 0, 5]], gridSize: 8, targetCount: 5 },
+            { grid: [[1, 0, 0, 0, 0, 0, 0, 0], [9, 9, 9, 0, 0, 9, 9, 9], [0, 0, 2, 0, 3, 0, 0, 0], [0, 9, 9, 9, 9, 9, 9, 0], [0, 0, 0, 0, 0, 0, 4, 0], [0, 9, 9, 9, 9, 9, 9, 0], [5, 0, 0, 0, 6, 0, 7, 0], [9, 9, 9, 0, 0, 9, 9, 8]], gridSize: 8, targetCount: 8 },
+            { grid: [[1, 0, 0, 0, 0, 0, 2], [0, 9, 9, 9, 9, 9, 0], [0, 0, 3, 0, 4, 0, 0], [5, 9, 9, 9, 9, 9, 6], [0, 0, 0, 0, 0, 0, 0], [0, 9, 9, 9, 9, 9, 0], [0, 0, 0, 0, 0, 0, 0]], gridSize: 7, targetCount: 6 },
+            { grid: [[1, 0, 0, 0, 0, 0, 0, 0], [0, 9, 9, 9, 9, 9, 9, 9], [0, 0, 0, 0, 0, 0, 0, 2], [9, 9, 9, 9, 9, 9, 9, 0], [3, 0, 0, 0, 0, 0, 0, 0], [0, 9, 9, 9, 9, 9, 9, 4], [5, 0, 0, 0, 0, 0, 0, 0], [0, 6, 0, 7, 0, 0, 0, 0]], gridSize: 8, targetCount: 7 },
+            { grid: [[1, 9, 0, 9, 0, 9, 0, 9], [0, 9, 0, 9, 0, 9, 0, 2], [0, 9, 0, 9, 0, 9, 0, 9], [3, 9, 0, 9, 0, 9, 0, 9], [9, 9, 0, 9, 0, 9, 0, 9], [5, 9, 0, 9, 0, 9, 0, 9], [9, 9, 0, 9, 0, 9, 0, 9], [7, 9, 0, 9, 0, 9, 0, 8]], gridSize: 8, targetCount: 8 },
+            { grid: [[1, 0, 0, 0, 0, 0, 0], [0, 9, 9, 9, 9, 9, 0], [0, 0, 2, 0, 3, 0, 0], [0, 9, 0, 9, 0, 9, 0], [4, 9, 0, 9, 0, 9, 5], [0, 9, 0, 0, 0, 9, 0], [0, 0, 0, 6, 0, 0, 0]], gridSize: 7, targetCount: 6 },
+            { grid: [[1, 0, 0, 0, 0, 0, 0, 0], [0, 9, 0, 9, 0, 9, 0, 0], [0, 0, 2, 0, 3, 0, 4, 0], [0, 9, 0, 9, 0, 9, 0, 9], [5, 0, 0, 0, 0, 0, 0, 0], [0, 9, 0, 9, 0, 9, 0, 9], [0, 0, 6, 0, 7, 0, 8, 0], [0, 9, 0, 9, 0, 9, 0, 0]], gridSize: 8, targetCount: 8 },
+            { grid: [[1, 0, 0, 0, 0, 0, 0], [9, 9, 9, 9, 9, 9, 0], [0, 0, 0, 0, 0, 0, 0], [0, 9, 9, 9, 9, 9, 9], [0, 0, 3, 0, 4, 0, 5], [9, 9, 9, 9, 9, 9, 0], [2, 0, 0, 0, 0, 0, 0]], gridSize: 7, targetCount: 5 },
+            { grid: [[1, 2, 3, 0, 0, 0, 0, 0], [0, 9, 9, 9, 9, 9, 9, 4], [0, 0, 0, 0, 0, 0, 0, 0], [5, 9, 9, 9, 9, 9, 9, 0], [0, 0, 0, 0, 0, 0, 0, 6], [0, 9, 9, 9, 9, 9, 9, 0], [7, 0, 0, 0, 0, 0, 0, 8], [0, 9, 9, 9, 9, 9, 9, 0]], gridSize: 8, targetCount: 8 },
+            { grid: [[1, 0, 0, 0, 0, 0, 0], [0, 9, 9, 9, 9, 9, 0], [2, 0, 3, 0, 4, 0, 5], [0, 9, 9, 9, 9, 9, 0], [0, 0, 0, 0, 0, 0, 0], [0, 9, 9, 9, 9, 9, 0], [6, 0, 0, 0, 7, 0, 0]], gridSize: 7, targetCount: 7 },
+            { grid: [[1, 0, 0, 0, 0, 0, 0, 0], [0, 9, 9, 9, 9, 9, 9, 2], [0, 9, 0, 0, 0, 0, 9, 0], [0, 9, 0, 9, 9, 0, 9, 0], [3, 9, 0, 9, 9, 0, 9, 0], [0, 9, 0, 0, 0, 0, 9, 4], [0, 9, 9, 9, 9, 9, 9, 0], [5, 6, 7, 8, 0, 0, 0, 0]], gridSize: 8, targetCount: 8 },
+            { grid: [[1, 0, 0, 0, 0, 0, 0, 2], [9, 9, 9, 9, 9, 9, 0, 9], [3, 0, 0, 0, 0, 0, 0, 4], [9, 9, 9, 9, 9, 9, 0, 9], [5, 0, 0, 0, 0, 0, 0, 6], [9, 9, 9, 9, 9, 9, 0, 9], [7, 0, 0, 0, 0, 0, 0, 8], [9, 9, 9, 9, 9, 9, 0, 0]], gridSize: 8, targetCount: 8 },
+        ];
+
+
+        function varColor(variableName) {
+            return getComputedStyle(document.documentElement).getPropertyValue(variableName);
+        }
+        
+        function calculateStars(moves, optimal) {
+            if (moves === optimal) return 3;
+            if (moves <= optimal + 3) return 2;
+            if (moves <= optimal + 6) return 1; 
+            return 0; 
+        }
+
+        function renderStars(count) {
+            let html = '';
+            for (let i = 1; i <= 3; i++) {
+                const className = i <= count ? 'filled' : '';
+                html += `<i class="fa-solid fa-star ${className}"></i>`;
+            }
+            return html;
+        }
+
+        function showMessage(title, message, isGameOver = false) {
+            initializeAudio();
+
+            modalTitle.textContent = title;
+            modalMessage.innerHTML = message;
+            starRatingEl.style.display = 'none';
+            optimalRunLabel.style.display = 'none';
+            
+            messageModal.style.display = 'flex';
+            
+            if (isGameOver) {
+                const levelIndex = gameState.currentLevelIndex;
+                const optimal = optimalMoves[levelIndex];
+                const moves = gameState.movesCount;
+                const stars = calculateStars(moves, optimal);
+                
+                if (title === 'Level Complete!') {
+                    starRatingEl.innerHTML = renderStars(stars);
+                    starRatingEl.style.display = 'block';
+                    
+                    modalMessage.innerHTML = `You solved Level **${levelIndex + 1}** in **${moves} moves**. <br> Optimal moves for 3 stars: ${optimal}.`;
+
+                    if (stars === 3) {
+                        optimalRunLabel.style.display = 'block';
+                        playWinSound(3); 
+                        submitScoreToLeaderboard(levelIndex, moves); 
+                    } else {
+                        playWinSound(stars);
+                    }
+                    
+                    // Progress is saved when moving to the next level/resetting
+                } else {
+                    playFailSound();
+                }
+
+                modalCloseBtn.textContent = (levelIndex < allLevels.length - 1) ? 'Start Next Level' : 'Restart Game';
+                modalCloseBtn.onclick = () => {
+                    messageModal.style.display = 'none';
+                    if (levelIndex < allLevels.length - 1) {
+                        gameState.currentLevelIndex++;
+                        saveProgress(); // Save progress before loading next level
+                        loadLevel(gameState.currentLevelIndex, true);
+                        gameState.isRunning = true;
+                    } else {
+                        // Game Complete/Restart
+                        gameState.currentLevelIndex = 0;
+                        gameState.hasCompletedTutorial = false; // Reset tutorial on full game completion
+                        saveProgress();
+                        loadLevel(gameState.currentLevelIndex, false);
+                        startGameBtn.textContent = 'Start Game'; 
+                        startGameBtn.disabled = false;
+                        resetLevelBtn.disabled = true;
+                        undoMoveBtn.disabled = true;
+                        gameState.isRunning = false;
+                        
+                        // Start tutorial again on restart
+                        startTutorial();
+                    }
+                };
+            } else {
+                modalCloseBtn.textContent = 'Continue';
+                modalCloseBtn.onclick = () => {
+                    messageModal.style.display = 'none';
+                };
+            }
+        }
+        
+        function adjustCanvasSize() {
+            const gameContainer = document.querySelector('.game-container');
+            const size = Math.min(gameContainer.clientWidth - 40, 500);
+            
+            canvas.width = size;
+            canvas.height = size;
+
+            if (gameState.currentLevel) {
+                CELL_SIZE = size / gameState.currentLevel.gridSize;
+                drawGame();
+            }
+        }
+
+
+        function loadLevel(index, startRunning) {
+            if (index >= allLevels.length) {
+                gameState.currentLevelIndex = 0;
+                showMessage('Game Complete!', 'Congratulations! You have mastered the Neon Sequence. Progress has been reset to Level 1. Check the Leaderboard for your score!', true);
+                return;
+            }
+
+            const level = allLevels[index];
+            if (!level) {
+                 showMessage('Error', 'Level data missing.', false);
+                 return;
+            }
+
+            CELL_SIZE = canvas.width / level.gridSize;
+
+            gameState.moveHistory = [];
+            undoMoveBtn.disabled = true;
+            gameState.movesCount = 0; 
+            gameState.isRunning = startRunning;
+
+            // Deep clone the level
+            gameState.currentLevel = JSON.parse(JSON.stringify(level)); 
+            gameState.nextTarget = 2; 
+            gameState.tutorialStep = (index === 0 && !gameState.hasCompletedTutorial) ? 1 : 0; // Start tutorial if Level 1 and not completed
+
+            let startFound = false;
+            for (let r = 0; r < level.gridSize; r++) {
+                for (let c = 0; c < level.gridSize; c++) {
+                    if (level.grid[r][c] === 1) {
+                        gameState.player.x = c;
+                        gameState.player.y = r;
+                        startFound = true;
+                        gameState.currentLevel.grid[r][c] = 0; 
+                        break;
+                    }
+                }
+                if (startFound) break;
+            }
+            
+            gameState.path = [{ x: gameState.player.x, y: gameState.player.y }];
+
+            levelDisplay.textContent = `Level: ${index + 1}/${allLevels.length}`;
+            targetDisplay.textContent = `Next Target: ${gameState.nextTarget}`;
+            movesDisplay.textContent = `Moves: ${gameState.movesCount}`;
+            nextLevelBtn.style.display = 'none';
+            resetLevelBtn.disabled = false;
+            startGameBtn.disabled = startRunning;
+            
+            updateTutorialControls(); // Apply button highlighting/disabling
+            drawGame();
+        }
+
+        function drawGame() {
+            if (!gameState.currentLevel) return;
+
+            const grid = gameState.currentLevel.grid;
+            const size = gameState.currentLevel.gridSize;
+            const currentCanvasSize = canvas.width;
+            
+            ctx.setTransform(1, 0, 0, 1, 0, 0); // Reset transform before drawing
+
+            ctx.fillStyle = '#0d1117';
+            ctx.fillRect(0, 0, currentCanvasSize, currentCanvasSize);
+
+            // Draw grid lines
+            ctx.strokeStyle = '#2d3748';
+            ctx.lineWidth = 1;
+            for (let i = 0; i <= size; i++) {
+                ctx.beginPath();
+                ctx.moveTo(i * CELL_SIZE, 0);
+                ctx.lineTo(i * CELL_SIZE, currentCanvasSize);
+                ctx.stroke();
+
+                ctx.beginPath();
+                ctx.moveTo(0, i * CELL_SIZE);
+                ctx.lineTo(currentCanvasSize, i * CELL_SIZE);
+                ctx.stroke();
+            }
+
+            // Draw Path
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = varColor('--color-neon-red');
+            ctx.strokeStyle = varColor('--color-neon-red');
+            ctx.lineWidth = CELL_SIZE * 0.1; 
+
+            ctx.beginPath();
+            
+            if (gameState.path.length > 0) {
+                ctx.moveTo(
+                    gameState.path[0].x * CELL_SIZE + CELL_SIZE / 2,
+                    gameState.path[0].y * CELL_SIZE + CELL_SIZE / 2
+                );
+            }
+
+            for (let i = 1; i < gameState.path.length; i++) {
+                const p = gameState.path[i];
+                const x = p.x * CELL_SIZE + CELL_SIZE / 2;
+                const y = p.y * CELL_SIZE + CELL_SIZE / 2;
+                ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+
+            ctx.shadowBlur = 0;
+
+            // Draw Grid Elements (Walls, Barriers, Targets)
+            for (let r = 0; r < size; r++) {
+                for (let c = 0; c < size; c++) {
+                    const value = grid[r][c];
+                    const centerX = c * CELL_SIZE + CELL_SIZE / 2;
+                    const centerY = r * CELL_SIZE + CELL_SIZE / 2;
+
+                    if (value === 9) {
+                        // Static Wall
+                        ctx.fillStyle = varColor('--color-obstacle');
+                        ctx.fillRect(c * CELL_SIZE, r * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+                        ctx.strokeStyle = varColor('--color-text');
+                        ctx.lineWidth = 2;
+                        ctx.strokeRect(c * CELL_SIZE, r * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+                    } else if (value === 10) {
+                        // Closed Barrier Wall
+                        ctx.fillStyle = varColor('--color-obstacle');
+                        ctx.fillRect(c * CELL_SIZE, r * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+                        ctx.strokeStyle = varColor('--color-barrier');
+                        ctx.lineWidth = 4;
+                        ctx.strokeRect(c * CELL_SIZE, r * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+                        
+                        ctx.fillStyle = 'rgba(249, 115, 22, 0.4)';
+                        ctx.fillRect(c * CELL_SIZE + 5, r * CELL_SIZE + 5, CELL_SIZE - 10, CELL_SIZE - 10);
+                        
+                        ctx.fillStyle = varColor('--color-barrier');
+                        ctx.font = `${CELL_SIZE * 0.3}px Orbitron`;
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'middle';
+                        ctx.shadowBlur = 10;
+                        ctx.shadowColor = varColor('--color-barrier');
+                        ctx.fillText('BARRIER', centerX, centerY);
+                        ctx.shadowBlur = 0;
+
+                    } else if (value === 11 || value === 12) {
+                        // Portal A (11) or Portal B (12)
+                        const portalColor = value === 11 ? varColor('--color-portal-a') : varColor('--color-portal-b');
+                        const shadowColor = value === 11 ? 'rgba(59, 130, 246, 0.9)' : 'rgba(16, 185, 129, 0.9)';
+                        
+                        ctx.beginPath();
+                        ctx.rect(c * CELL_SIZE + 5, r * CELL_SIZE + 5, CELL_SIZE - 10, CELL_SIZE - 10);
+                        ctx.shadowBlur = 25;
+                        ctx.shadowColor = shadowColor;
+                        ctx.strokeStyle = portalColor;
+                        ctx.lineWidth = 4;
+                        ctx.stroke();
+
+                        ctx.shadowBlur = 0;
+                        ctx.fillStyle = portalColor;
+                        ctx.font = `${CELL_SIZE * 0.4}px Orbitron`;
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'middle';
+                        ctx.fillText(value === 11 ? 'A' : 'B', centerX, centerY);
+
+                    } else if (value === 13) {
+                        // One-Way Gate
+                        ctx.fillStyle = varColor('--color-oneway');
+                        ctx.fillRect(c * CELL_SIZE, r * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+                        
+                        const gateData = gameState.currentLevel.oneWayGates.find(g => g.x === c && g.y === r);
+                        if (gateData) {
+                            ctx.fillStyle = varColor('--color-neon-red');
+                            ctx.shadowBlur = 10;
+                            ctx.shadowColor = varColor('--color-neon-red');
+                            ctx.font = `${CELL_SIZE * 0.4}px FontAwesome`; // Use FontAwesome for simple arrows
+
+                            const iconMap = {
+                                'up': '\uf062', // solid arrow-up
+                                'down': '\uf063', // solid arrow-down
+                                'left': '\uf060', // solid arrow-left
+                                'right': '\uf061' // solid arrow-right
+                            };
+
+                            let arrows = '';
+                            gateData.allowed.forEach(dir => arrows += iconMap[dir] + ' ');
+                            
+                            ctx.fillText(arrows, centerX, centerY);
+                            ctx.shadowBlur = 0;
+                        }
+                    } else if (value >= 2) {
+                        // Targets
+                        const isNextTarget = value === gameState.nextTarget;
+                        const color = isNextTarget ? varColor('--color-neon-green') : varColor('--color-neon-blue');
+                        const shadowColor = isNextTarget ? 'rgba(16, 185, 129, 0.8)' : 'rgba(59, 130, 246, 0.8)';
+
+                        ctx.beginPath();
+                        ctx.arc(centerX, centerY, CELL_SIZE * 0.4, 0, Math.PI * 2);
+                        ctx.shadowBlur = 15;
+                        ctx.shadowColor = shadowColor;
+                        ctx.strokeStyle = color;
+                        ctx.lineWidth = 3;
+                        ctx.stroke();
+
+                        ctx.shadowBlur = 0;
+                        ctx.fillStyle = varColor('--color-text');
+                        ctx.font = `${CELL_SIZE * 0.4}px Orbitron`;
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'middle';
+                        ctx.fillText(value, centerX, centerY);
+                    }
+                }
+            }
+
+            // Draw Player Orb
+            const playerX = gameState.player.x * CELL_SIZE + CELL_SIZE / 2;
+            const playerY = gameState.player.y * CELL_SIZE + CELL_SIZE / 2;
+            const playerColor = varColor('--color-neon-red');
+            
+            let pulseFactor = gameState.isPulsing ? 1.5 : 1.0; 
+            const playerShadowBlur = gameState.isPulsing ? 35 : 20; 
+            const playerRadius = CELL_SIZE * 0.3 * pulseFactor; 
+
+            ctx.beginPath();
+            ctx.arc(playerX, playerY, playerRadius, 0, Math.PI * 2);
+            ctx.shadowBlur = playerShadowBlur;
+            ctx.shadowColor = playerColor;
+            ctx.fillStyle = playerColor;
+            ctx.fill();
+            ctx.shadowBlur = 0;
+            
+            // Draw Tutorial Overlay (Arrow)
+            if (gameState.tutorialStep > 0 && gameState.tutorialStep <= TUTORIAL_MOVES.length) {
+                drawTutorialArrow(gameState.player.x, gameState.player.y, TUTORIAL_MOVES[gameState.tutorialStep - 1].dir);
+            }
+        }
+        
+        // Draw Tutorial Arrow function remains the same... (omitted for brevity)
+        function drawTutorialArrow(px, py, direction) {
+            const centerX = px * CELL_SIZE + CELL_SIZE / 2;
+            const centerY = py * CELL_SIZE + CELL_SIZE / 2;
+            const arrowLength = CELL_SIZE * 0.8;
+            const arrowSize = CELL_SIZE * 0.15;
+
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = varColor('--color-tutorial-highlight');
+            ctx.strokeStyle = varColor('--color-tutorial-highlight');
+            ctx.fillStyle = varColor('--color-tutorial-highlight');
+            ctx.lineWidth = 5;
+
+            ctx.beginPath();
+
+            let targetX = centerX, targetY = centerY;
+            
+            if (direction === 'down') { targetY += arrowLength; } 
+            else if (direction === 'up') { targetY -= arrowLength; }
+            else if (direction === 'right') { targetX += arrowLength; }
+            else if (direction === 'left') { targetX -= arrowLength; }
+            
+            // Draw shaft
+            ctx.moveTo(centerX, centerY);
+            ctx.lineTo(targetX, targetY);
+            ctx.stroke();
+
+            // Draw head
+            ctx.translate(targetX, targetY);
+            let angle = 0;
+            if (direction === 'up') angle = Math.PI;
+            else if (direction === 'right') angle = -Math.PI / 2;
+            else if (direction === 'left') angle = Math.PI / 2;
+            
+            ctx.rotate(angle);
+            ctx.moveTo(0, 0);
+            ctx.lineTo(-arrowSize, -arrowSize);
+            ctx.lineTo(arrowSize, -arrowSize);
+            ctx.closePath();
+            ctx.fill();
+
+            // Reset transform
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            ctx.shadowBlur = 0;
+        }
+
+        // Handles visual pulse on move
+        function triggerPulse() {
+            gameState.isPulsing = true;
+            drawGame();
+            setTimeout(() => {
+                gameState.isPulsing = false;
+                drawGame();
+            }, 150); // Pulse duration
+        }
+        
+        // Tutorial control logic remains the same...
+        function updateTutorialControls() {
+            controlButtons.forEach(btn => {
+                btn.classList.remove('highlight');
+                btn.disabled = false;
+            });
+            undoMoveBtn.disabled = true;
+
+            if (gameState.tutorialStep > 0 && gameState.tutorialStep <= TUTORIAL_MOVES.length) {
+                startGameBtn.disabled = true; 
+                resetLevelBtn.disabled = true; 
+                
+                const correctDir = TUTORIAL_MOVES[gameState.tutorialStep - 1].dir;
+                
+                controlButtons.forEach(btn => {
+                    const dir = btn.getAttribute('data-dir');
+                    if (dir === correctDir) {
+                        btn.classList.add('highlight');
+                        btn.disabled = false; 
+                    } else {
+                        btn.disabled = true; 
+                    }
+                });
+                
+                modalMessage.innerHTML = TUTORIAL_MOVES[gameState.tutorialStep - 1].message;
+                modalMessage.style.color = varColor('--color-tutorial-highlight');
+            } else {
+                modalMessage.innerHTML = '';
+                modalMessage.style.color = varColor('--color-text');
+                resetLevelBtn.disabled = !gameState.isRunning;
+                undoMoveBtn.disabled = gameState.moveHistory.length === 0;
+            }
+        }
+        
+        function startTutorial() {
+            if (gameState.currentLevelIndex === 0 && !gameState.hasCompletedTutorial) {
+                gameState.isRunning = true;
+                gameState.tutorialStep = 1;
+                showMessage('Interactive Tutorial', 'Welcome! Use the controls to guide the orb. Follow the highlighted button and arrow.', false);
+                modalCloseBtn.onclick = () => { 
+                    messageModal.style.display = 'none';
+                    updateTutorialControls();
+                };
+            }
+        }
+
+        function movePlayer(dx, dy) {
+            if (!gameState.isRunning) return;
+            initializeAudio();
+            
+            const currentLevel = gameState.currentLevel;
+            const size = currentLevel.gridSize;
+            let newX = gameState.player.x + dx;
+            let newY = gameState.player.y + dy;
+            
+            // --- MOVEMENT VALIDATION START ---
+            
+            if (newX < 0 || newX >= size || newY < 0 || newY >= size) {
+                return;
+            }
+            
+            // Determine direction of travel for One-Way Gate check
+            let travelDir = null;
+            if (dx === 0 && dy === -1) travelDir = 'up';
+            else if (dx === 0 && dy === 1) travelDir = 'down';
+            else if (dx === -1 && dy === 0) travelDir = 'left';
+            else if (dx === 1 && dy === 0) travelDir = 'right';
+
+            // Tutorial Guardrail 
+            if (gameState.tutorialStep > 0 && gameState.tutorialStep <= TUTORIAL_MOVES.length) {
+                const requiredMove = TUTORIAL_MOVES[gameState.tutorialStep - 1];
+                if (dx !== requiredMove.dx || dy !== requiredMove.dy) {
+                    playFailSound();
+                    return; // Ignore incorrect moves during tutorial
+                }
+            }
+
+            // Check for One-Way Gate collision (13)
+            if (currentLevel.oneWayGates && currentLevel.grid[newY][newX] === 13) {
+                const gate = currentLevel.oneWayGates.find(g => g.x === newX && g.y === newY);
+                if (gate) {
+                    if (!gate.allowed.includes(travelDir)) {
+                        playFailSound();
+                        return; // Block move
+                    }
+                }
+            }
+
+            // Check for collision with static wall (9) or closed barrier (10)
+            if (currentLevel.grid[newY][newX] === 9 || currentLevel.grid[newY][newX] === 10) {
+                return;
+            }
+            
+            // --- MOVEMENT VALIDATION END ---
+
+            // Save the state before moving
+            gameState.moveHistory.push({
+                x: gameState.player.x,
+                y: gameState.player.y,
+                nextTarget: gameState.nextTarget,
+                movesCount: gameState.movesCount,
+                grid: JSON.parse(JSON.stringify(gameState.currentLevel.grid)), 
+                path: JSON.parse(JSON.stringify(gameState.path)) 
+            });
+            undoMoveBtn.disabled = false;
+
+            gameState.player.x = newX;
+            gameState.player.y = newY;
+            gameState.path.push({ x: newX, y: newY }); 
+            gameState.movesCount++; 
+            movesDisplay.textContent = `Moves: ${gameState.movesCount}`; 
+            
+            triggerPulse(); 
+            playMoveSound();
+
+            let postMoveX = newX;
+            let postMoveY = newY;
+            let cellValue = currentLevel.grid[newY][newX];
+
+            // Check for Portals (11 or 12) immediately after the move
+            if (cellValue === 11 || cellValue === 12) {
+                let portalExit = null;
+
+                for (const portal of currentLevel.portals || []) {
+                    // Check entry point A -> Exit B
+                    if (portal.x === newX && portal.y === newY) {
+                        portalExit = { x: portal.targetX, y: portal.targetY };
+                        break;
+                    }
+                    // Check entry point B -> Exit A
+                    if (portal.targetX === newX && portal.targetY === newY) {
+                        portalExit = { x: portal.x, y: portal.y };
+                        break;
+                    }
+                }
+                
+                if (portalExit) {
+                    gameState.player.x = portalExit.x;
+                    gameState.player.y = portalExit.y;
+                    gameState.path.push({ x: portalExit.x, y: portalExit.y }); // Add exit point to path
+                    playPortalSound(); 
+                    
+                    // Update variables for target check
+                    postMoveX = portalExit.x;
+                    postMoveY = portalExit.y;
+                    cellValue = currentLevel.grid[postMoveY][postMoveX];
+                }
+            }
+            
+            let levelWon = false;
+            
+            // Check for Target Collection at the final cell (could be after portal)
+            if (cellValue === gameState.nextTarget) {
+                currentLevel.grid[postMoveY][postMoveX] = 0; 
+                
+                // Check for Triggers
+                if (currentLevel.triggers) {
+                    currentLevel.triggers.forEach(trigger => {
+                        if (trigger.onCollectTarget === cellValue) {
+                            if (trigger.action.type === 'open_barrier') {
+                                const barrierX = trigger.action.x;
+                                const barrierY = trigger.action.y;
+                                
+                                if (currentLevel.grid[barrierY][barrierX] === 10) {
+                                    currentLevel.grid[barrierY][barrierX] = 0; // Open the barrier
+                                    playBarrierOpenSound();
+                                }
+                            }
+                        }
+                    });
+                }
+                
+                gameState.nextTarget++;
+                targetDisplay.textContent = `Next Target: ${gameState.nextTarget}`;
+                playCollectSound();
+
+                if (gameState.nextTarget > currentLevel.targetCount) {
+                    levelWon = true;
+                }
+            } else if (cellValue > 1 && cellValue !== 9 && cellValue !== 10 && cellValue !== 11 && cellValue !== 12 && cellValue !== 13) {
+                // Hit a target out of order
+                playFailSound();
+                resetLevel();
+                showMessage('Sequence Error', 'You hit a target out of order. Resetting level.', false);
+                return;
+            }
+            
+            // Tutorial progression
+            if (gameState.tutorialStep > 0 && gameState.tutorialStep <= TUTORIAL_MOVES.length) {
+                gameState.tutorialStep++;
+                if (gameState.tutorialStep > TUTORIAL_MOVES.length) {
+                    gameState.hasCompletedTutorial = true;
+                    gameState.tutorialStep = 0;
+                    saveProgress();
+                    showMessage('Tutorial Complete', 'You mastered the basics! Now solve the rest of Level 1 and beyond.');
+                }
+                updateTutorialControls();
+            }
+
+            drawGame();
+            
+            if (levelWon) {
+                gameState.isRunning = false;
+                nextLevelBtn.style.display = 'block';
+                resetLevelBtn.disabled = true;
+                undoMoveBtn.disabled = true; 
+                showMessage('Level Complete!', `You successfully completed Level ${gameState.currentLevelIndex + 1}!`, true);
+            }
+        }
+
+        function undoMove() {
+            if (!gameState.isRunning || gameState.moveHistory.length === 0) return;
+            initializeAudio();
+            
+            if (gameState.tutorialStep > 0) return; // Disable undo during tutorial
+
+            const previousState = gameState.moveHistory.pop();
+            
+            gameState.player.x = previousState.x;
+            gameState.player.y = previousState.y;
+            gameState.nextTarget = previousState.nextTarget;
+            gameState.movesCount = previousState.movesCount; 
+            gameState.currentLevel.grid = previousState.grid; 
+            gameState.path = previousState.path; 
+
+            targetDisplay.textContent = `Next Target: ${gameState.nextTarget}`;
+            movesDisplay.textContent = `Moves: ${gameState.movesCount}`;
+            
+            undoMoveBtn.disabled = (gameState.moveHistory.length === 0);
+            playMoveSound(); 
+
+            drawGame();
+        }
+
+        function resetLevel() {
+            if (gameState.tutorialStep > 0) {
+                 // Restart tutorial from step 1
+                 gameState.tutorialStep = 1;
+                 updateTutorialControls();
+            }
+            gameState.isRunning = true;
+            loadLevel(gameState.currentLevelIndex, true);
+        }
+
+        function startGame() {
+            initializeAudio();
+            gameState.isRunning = true;
+            startGameBtn.disabled = true;
+            loadLevel(gameState.currentLevelIndex, true);
+        }
+
+        // --- EVENT LISTENERS ---
+
+        startGameBtn.addEventListener('click', startGame);
+        resetLevelBtn.addEventListener('click', resetLevel);
+        undoMoveBtn.addEventListener('click', undoMove); 
+        nextLevelBtn.addEventListener('click', () => {
+            document.getElementById('modalCloseBtn').click(); 
+        });
+
+        controlButtons.forEach(button => {
+            button.addEventListener('click', () => {
+                if (button.disabled && !button.classList.contains('highlight')) return; 
+                const dir = button.getAttribute('data-dir');
+                let dx = 0, dy = 0;
+                if (dir === 'up') dy = -1;
+                else if (dir === 'down') dy = 1;
+                else if (dir === 'left') dx = -1;
+                else if (dir === 'right') dx = 1;
+                movePlayer(dx, dy);
+            });
+        });
+
+        document.addEventListener('keydown', (e) => {
+            let dx = 0, dy = 0;
+            let dir = null;
+            if (e.key === 'ArrowUp' || e.key === 'w') {
+                dy = -1; dir = 'up';
+            } else if (e.key === 'ArrowDown' || e.key === 's') {
+                dy = 1; dir = 'down';
+            } else if (e.key === 'ArrowLeft' || e.key === 'a') {
+                dx = -1; dir = 'left';
+            } else if (e.key === 'ArrowRight' || e.key === 'd') {
+                dx = 1; dir = 'right';
+            } else if (e.key === 'z' || e.key === 'Z') {
+                undoMove();
+                return;
+            } else {
+                return;
+            }
+            e.preventDefault();
+            
+            const button = document.querySelector(`.controls button[data-dir="${dir}"]`);
+            if (button && button.disabled && !button.classList.contains('highlight')) {
+                playFailSound();
+                return;
+            }
+            
+            movePlayer(dx, dy);
+        });
+
+        // Initial setup on load
+        window.onload = function() {
+            adjustCanvasSize();
+            window.addEventListener('resize', adjustCanvasSize);
+            
+            // Firebase setup (initializeFirebaseAndAuth) handles the rest
+        };
+    </script>
+</body>
+</html>
